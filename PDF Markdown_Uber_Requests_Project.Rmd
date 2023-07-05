@@ -1,0 +1,660 @@
+---
+title: 'Uber Data: Ride Cancellation Probability.'
+author: "Arthur Richardson"
+date: "7/5/2023"
+output:
+  pdf_document:
+  df_print: kable
+toc: yes
+documentclass: article
+classoption: a4paper
+fig_height: 5
+fig_width: 5
+fontsize: 10pt
+highlight: zenburn
+latex_engine: xelatex
+mainfont: Arial
+mathfont: LiberationMono
+monofont: DejaVu Sans Mono
+---
+
+```{r setup, include=FALSE, echo=FALSE,warning=FALSE, error=TRUE}
+library(knitr)
+knitr::opts_chunk$set(
+  verbose=TRUE,
+  warning=FALSE,
+  message=FALSE,
+  fig.align='center',
+  fig.lp = '',
+  fig.keep='high',
+  fig.show='hold',
+  echo=TRUE, 
+  tidy.opts=list(width.cutoff=60),
+  tidy = FALSE, 
+  dev='pdf')
+```
+
+```{r wrap-hook, echo=FALSE}
+# Function to make output fit on page
+library(knitr)
+hook_output = knit_hooks$get('output')
+knit_hooks$set(output = function(x, options) {
+  # this hook is used only when the linewidth option is not NULL
+  if (!is.null(n <- options$linewidth)) {
+    x = knitr:::split_lines(x)
+    # any lines wider than n should be wrapped
+    if (any(nchar(x) > n)) x = strwrap(x, width = n)
+    x = paste(x, collapse = '\n')
+  }
+  hook_output(x, options)
+})
+```
+\newpage 
+
+# **Dedication:**   
+&nbsp; 
+
+&nbsp; 
+
+<center> This project is dedicated to my two daughters. </center>
+  <center> *__Love self first to understand how to love another.__* </center>
+  <center> *__Love, Dad.__* </center>
+  
+&nbsp; 
+
+\newpage 
+
+# **Introduction:**   
+
+&nbsp; 
+
+In this project, we will analyze Uber Request Data from ANUPAM MAJHI's Kaggle(https://www.kaggle.com/datasets/anupammajhi/uber-request-data). Uber is a ridesharing company. Rideshare is a travel in a private vehicle driven by its owner, free or for a fee, especially as part of an arrangement made using a website or app. In this project, we will evaluate the trip data and create a machine-learning algorithm to predict future trip completions or cancellations. 
+
+DISCLAIMER: This data and its analysis are provided for informational purposes only. The information presented here is not endorsed, affiliated with, or sponsored by Uber or any related entities. The data used in this analysis is publicly available and has been collected from various sources. We make no representations or warranties of any kind, express or implied, about the data's completeness, accuracy, reliability, or suitability. Any reliance you place on the information provided is strictly at your own risk. We will not be liable for any loss or damage arising from using this data. The use of this data does not create a professional-client relationship. We recommend verifying the data with official sources before making decisions or conclusions.
+
+&nbsp; 
+
+## **Objective:**  
+
+&nbsp; 
+
+Uber is one of the top ride-sharing companies in the world.  Uber has a 68% share of the US rideshare market.  Uber is a global company.  Its service is available in over 250 cities in more than 45 countries.  Uber drivers completed 7.6 billion trips in 2022, surpassing its peak of 6.9 billion in 2019.  In this project, we will explore Uber's request data. 
+
+&nbsp;
+
+## **Data Installation:**  
+
+&nbsp; 
+
+Upload following packages and libraries for data exploration. 
+
+```{r warning = FALSE, message= FALSE, results='hide'}
+library(tidyverse)
+library(caret)
+library(data.table)
+library(RColorBrewer)
+library(rmarkdown)
+library(dslabs)
+library(gtable)
+library(ggplot2)
+library(hexbin)
+library(gt)
+library(dplyr)
+library(ggpmisc)
+library(gridExtra)
+library(janitor)
+library(lubridate)
+library(highcharter)
+library(viridisLite)
+library(broom)
+library(scales)
+library(xfun)
+library(htmltools)
+library(mime)
+library(ggfortify)
+library(gtsummary)
+library(tinytex)
+library(vroom)
+library(curl)
+library(gtools)
+library(hrbrthemes)
+library(plotrix)
+library(timeDate)
+library(parsnip)
+library(viridis)
+library(latexpdf)
+library(kableExtra)
+library(showtext)
+library(remotes)
+library(extrafont)
+```
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+options(scipen = 999)
+options(timeout = 320)
+gc()
+```
+
+&nbsp; 
+
+## **Data Analysis:**   
+
+&nbsp; 
+
+Upload the data set. The file can be downloaded from https://www.kaggle.com/datasets/anupammajhi/uber-request-data
+
+```{r warning = FALSE, message= FALSE}
+
+xfun::pkg_load2(c("htmltools", "mime")) 
+xfun::embed_files('UBER_Request.csv')
+```
+
+```{r warning = FALSE, message= FALSE, results = "hide"}
+UBER_Data <- read.csv(
+  'UBER_Request.csv')
+
+```
+
+&nbsp; 
+
+### **Dimensions and Summary**  
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+dim(UBER_Data)
+summary(UBER_Data)
+```
+
+Based on this data we know that we have 300 unique driver ids, two main pick up points (Airport / City), and 6745 unique requests. We also have three Trip statuses:  Cancelled--- 1264,  No Cars Available--- 2650,   Trip Completed--- 2831.
+
+We will explore the data. First, lets determine how many different trips were completed/not completed, what is the location of the completed trips, what dates does this  data set cover.
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+any(is.na(UBER_Data))
+sum(is.na(UBER_Data))
+colSums(is.na(UBER_Data))
+```
+
+&nbsp; 
+
+#### **Uber Data Set Glossary and Terminology**  
+
+&nbsp; 
+
+1. Request id: A unique identifier of the request.
+
+1. Pickup point: The point from which the request was made.
+
+1. Driver id: 	The unique identification number of the driver.
+
+1. Status: 	The final status of the trip, that can be either completed, cancelled by the driver or no cars available.
+
+1. Request timestamp: 	The date and time at which the customer made the trip request.
+
+1. Drop timestamp: 		 The drop-off date and time, in case the trip was completed.
+
+&nbsp; 
+
+## **Deep dive into the data**  
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+e <- ggplot(UBER_Data, aes(Request.id))
+e + geom_density(aes(fill = factor(Status)), alpha= 0.8)+
+  labs(
+    title = " All Uber Trip Statuses",
+    subtitle = "Uber Trips Project 2023",
+    caption = "Portions of this data is from the Reference Section.",
+    x = "Total Number of Unique Requests",
+    y = "Density",
+  )+
+  theme_classic()+
+  theme(
+    legend.position = 'bottom',
+    axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1),
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(face = "italic",hjust = 0.5))
+
+e <- ggplot(data = UBER_Data, mapping = aes(x = Pickup.point, y = Request.id/1782.002, fill = Status))
+e +  geom_bar(stat = "identity")+
+  labs(
+    title = " Status of All Airport and City Uber Requests ",
+    subtitle = "Uber Trips Project 2023",
+    caption = "Portions of this data is from the Reference Section.",
+    x = "Pick Up Location",
+    y = "Total Number of Unique Requests",
+  )+
+  theme_classic()+
+  theme(
+    legend.position = 'bottom',
+    axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1),
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(face = "italic",hjust = 0.5))+
+  coord_flip()
+```
+
+&nbsp; 
+
+Which driver completed the most trips?
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+ 
+most_trips <- UBER_Data %>%
+  filter(Status == "Trip Completed") %>%
+  group_by(Driver.id, Status == "Trip Completed") %>%
+  arrange(Driver.id >= 1, Status == "Trip Completed") %>%
+  tally()
+
+colnames(most_trips) <- c("Driver.id", "Trip_Completed", "Total")
+
+most_trips[which.max(most_trips$Total), ]
+most_trips[which(most_trips$Total > 15), ]
+
+qplot(data = most_trips, x = Driver.id, y = Total > 15)
+```
+
+&nbsp; 
+
+Who completed the least amount of trips?
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+min_trips <- UBER_Data %>%
+  filter(Status == "Trip Completed") %>%
+  group_by(Driver.id, Status == "Trip Completed") %>%
+  arrange(Driver.id >= 1, Status == "Trip Completed") %>%
+  tally()
+
+colnames(min_trips) <- c("Driver.id", "Trip_Completed", "Total")
+
+min_trips[which.min(most_trips$Total), ]
+min_trips[which(min_trips$Total <5), ]
+
+qplot(data = min_trips, x = Driver.id, y = Total < 5)
+```
+ 
+&nbsp; 
+
+Average total of cancellations 
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+mean(most_trips$Total)
+```
+
+&nbsp; 
+
+Who had the most cancellations?
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+most_can <- UBER_Data %>%
+  filter(Status == "Cancelled") %>%
+  group_by(Driver.id, Status == "Cancelled") %>%
+  arrange(Driver.id >= 1, Status == "Cancelled") %>%
+  tally()
+
+
+colnames(most_can) <- c("Driver.id", "Cancelled", "Total")
+
+most_can[which.max(most_can$Total), ]
+
+most_can[which(most_can$Total >11), ]
+
+qplot(data = most_can, x = Driver.id, y = Total > 11)
+```
+
+&nbsp; 
+
+Who had the least amount of cancellations?
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+min_can <- UBER_Data %>%
+  filter(Status == "Cancelled") %>%
+  group_by(Driver.id, Status == "Cancelled") %>%
+  arrange(Driver.id >= 1, Status == "Cancelled") %>%
+  tally()
+
+colnames(min_can) <- c("Driver.id", "Cancelled", "Total")
+
+min_can[which.min(min_can$Total), ]
+
+min_can[which(min_can$Total <2), ]
+
+qplot(data = min_can, x = Driver.id, y = Total < 2)
+```
+
+&nbsp; 
+
+Average total of cancellations? 
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+mean(min_can$Total)
+```
+
+&nbsp; 
+
+What is the ratio of completed trips vice cancelled trips?
+
+&nbsp;
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+mean(most_trips$Total)/mean(min_can$Total)
+```
+
+&nbsp; 
+
+Which had the most cancellations, Airport or City?
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+Pickup_Can <- UBER_Data %>%
+  filter(Status == "Cancelled") %>%
+  group_by(Pickup.point == "Airport", Pickup.point == "City", Status == "Cancelled") %>%
+  arrange(Pickup.point, Status == "Cancelled") %>%
+  tally()
+
+colnames(Pickup_Can) <- c("Airport", "City", "Status", "Total")
+
+Pickup_Can[which.max(Pickup_Can$Total), ]
+Pickup_Can[which.min(Pickup_Can$Total), ]
+
+qplot(data = Pickup_Can, x = Airport == TRUE, y = Total)
+```
+
+&nbsp; 
+
+To get more from the data, lets break the specific trips down so we can determine more specific data 
+
+&nbsp; 
+
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+x <- UBER_Data 
+y <- x %>% separate(Request.timestamp, c("date", "time"), " ") 
+y$date <- str_replace_all(y$date, '-', '/')
+y$date <- format(as.Date(y$date), "%Y, %m, %d")
+y$date <- str_replace_all(y$date, '20', '2016')
+y$time <- format(strptime(y$time, format = '%H:%M'), '%R')
+
+y <- y %>% separate(Drop.timestamp, c("ddate", "ttime"), " ") 
+y$ddate <- str_replace_all(y$ddate, '-', '/')
+y$ddate <- format(as.Date(y$ddate), "%Y, %m, %d")
+y$ddate <- str_replace_all(y$ddate, '20', '2016')
+y$ttime <- format(strptime(y$ttime, format = '%H:%M'), '%R')
+
+colnames(y) <- c("Request.id", "Pickup.point", "Driver.id", "Status", "Request.date", 
+                 "Request.time", "Dropoff.Date", "Dropoff.Time")
+
+y$Driver.id[is.na(y$Driver.id)] <- 0
+y$Request.time[is.na(y$Request.time)] <- "00:00"
+y$Dropoff.Time[is.na(y$Dropoff.Time)] <- "00:00"
+y$Dropoff.Date[is.na(y$Dropoff.Date)] <- "17, 07, 2016"
+```
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+ggplot(data.frame(y), aes(x=Status)) +
+  geom_bar()
+```
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+
+percent(1264/6745)
+percent(2650/6745)
+percent(2831/6745)
+
+a <- 1264
+b <- 2650
+c <- 2831
+```
+
+```{r warning = FALSE, message= FALSE, echo = FALSE}
+Update_Category <- c("Cancelled\n 19%" = a, "No Available\n  Cars 39%" = b, "Trip\n Completed 42%" = c)
+pie3D(Update_Category,
+      col=c("yellow", "red", "green"),
+      labels = names(Update_Category),
+      radius=0.3,
+      height = .6,
+      labelcex = .70,
+      explode=0.4,
+      shade = 0.8,
+      theta = .7,
+      main=" Overall Uber Trip Data")
+```
+
+
+&nbsp; 
+
+## **Trips Completed vs Trips Not Completed**
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+1264+2650
+percent(3914/6745)
+percent(2831/6745)
+
+nc <- 3914
+tc <- 2831
+Categ <- c("Trips\n Not Completed 58%" = nc, "Trips\n Completed 42%" = tc)
+```
+
+```{r warning = FALSE, message= FALSE, echo=FALSE}
+pie3D(Categ,
+      col=c("blue", "green"),
+      labels = names(Categ),
+      radius=0.8,
+      height = .3,
+      labelcex = .70,
+      explode=0.4,
+      shade = 0.8,
+      theta = .7,
+      main=" Completed vs Not Competed Uber Trip Data")
+
+```
+
+&nbsp;
+
+What time was the most cancellations?
+
+&nbsp;
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+TD_Can <- y %>%
+  filter(Status == "Cancelled") %>%
+  group_by(Request.time, Status == "Cancelled") %>%
+  arrange(Request.time, Status == "Cancelled") %>%
+  tally()
+
+colnames(TD_Can) <- c("Request_Time", "Status", "Total")
+
+```
+
+```{r warning = FALSE, message= FALSE, echo=FALSE}
+TD_Can[which.max(TD_Can$Total), ]
+TD_Can[which.min(TD_Can$Total), ]
+```
+
+&nbsp; 
+
+What day were the most cancellations?
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+D_Can <- y %>%
+  filter(Status == "Cancelled") %>%
+  group_by(Request.date, Status == "Cancelled") %>%
+  arrange(Request.date, Status == "Cancelled") %>%
+  tally()
+
+colnames(D_Can) <- c("Request_Date", "Status", "Total")
+```
+
+```{r warning = FALSE, message= FALSE, echo=FALSE}
+
+D_Can[which.max(D_Can$Total), ]
+D_Can[which.min(D_Can$Total), ]
+
+qplot(data = D_Can, x = Request_Date, y = Total)
+```
+
+&nbsp; 
+
+What time has the most trips?
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+T_comp <- y %>%
+  filter(Status == "Trip Completed") %>%
+  group_by(Request.time, Status == "Trip Completed") %>%
+  arrange(Request.time, Status == "Trip Completed") %>%
+  tally()
+
+colnames(T_comp) <- c("Request_Time", "Status", "Total")
+```
+
+```{r warning = FALSE, message= FALSE, echo=FALSE}
+T_comp[which.max(T_comp$Total), ]
+T_comp[which.min(T_comp$Total), ]
+```
+
+&nbsp; 
+
+What day had the most trips?
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+d_comp <- y %>%
+  filter(Status == "Trip Completed") %>%
+  group_by(Request.date, Status == "Trip Completed") %>%
+  arrange(Request.date, Status == "Trip Completed") %>%
+  tally()
+
+colnames(d_comp) <- c("Request_Date", "Status", "Total")
+```
+
+```{r warning = FALSE, message= FALSE, echo=FALSE}
+d_comp[which.max(d_comp$Total), ]
+d_comp[which.min(d_comp$Total), ]
+
+qplot(data = d_comp, x = Request_Date, y = Total)
+```
+
+&nbsp; 
+
+## **Machine Learning**
+
+Now lets create a Logistic regression machine learning algorithm that will predict if a trip will be completed or not.
+
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE, results= "hide"}
+y$Trips <- ifelse(y$Status == "Trip Completed", "Trip Completed", "Trip Not Completed")
+
+y <- y %>%
+  mutate(Trip_Not_Completed = ifelse(Status %in% c("No Cars Available", "Cancelled"), 1, 0),
+         Trips = ifelse(Status == "Trip Completed", 1, 0)) %>%
+  select(-Status)
+
+y = subset(y, select = -c(Trip_Not_Completed) )
+
+any(is.na(y))
+sum(is.na(y$Driver.id))
+table(which(is.na(y), arr.ind=TRUE))
+
+as.numeric(y$Request.id, y$Driver.id, y$Dropoff.Time, y$Request.time)
+
+y$Request.time <- factor(y$Request.time, ordered = FALSE)
+y$Dropoff.Time  <- factor(y$Dropoff.Time, ordered = FALSE)
+
+set.seed(123)
+train_index <- createDataPartition(y$Trips, p = 0.7, list = FALSE, times = 1)
+train <- y[train_index, ]
+test <- y[-train_index, ]
+
+log_model_samp <- glm(Trips ~ Request.id + Pickup.point + Request.time + Driver.id, data = train, 
+                      family = binomial(link = "logit"))
+```
+
+&nbsp; 
+
+View the model output and use the model to make predictions on the testing set.
+
+&nbsp;
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+summary(log_model_samp)
+```
+
+```{r warning = FALSE, message= FALSE, include=FALSE}
+sapply(log_model_samp$xlevels, function(x) print(length(x)))
+
+log_model_samp$xlevels[["Request.time"]]<- union(log_model_samp$xlevels[["Request.time"]], levels(test$"Request.time"))
+log_model_samp$xlevels[["Dropoff.Time"]]<- union(log_model_samp$xlevels[["Dropoff.Time"]], levels(test$"Dropoff.Time"))
+log_model_samp$xlevels[["Pickup.point"]]<- union(log_model_samp$xlevels[["Pickup.point"]], levels(test$"Pickup.point"))
+
+predictions <- predict(log_model_samp, newdata = test, type = "response")
+```
+
+```{r warning = FALSE, message= FALSE, echo=FALSE}
+
+hist(log_model_samp$residuals)
+```
+
+
+```{r warning = FALSE, message= FALSE}
+accuracy <- mean((predictions <= 0.5) == (test$Trips == "0"))
+```
+
+&nbsp; 
+
+Calculate the accuracy of the model
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE}
+cat("Accuracy of the model:", accuracy)
+```
+
+&nbsp; 
+
+Average Trip notcompleted in the model
+
+&nbsp; 
+
+```{r warning = FALSE, message= FALSE}
+sum(log_model_samp$model$Trips == 0)/sum(log_model_samp$model$Trips == 0, 
+                                         log_model_samp$model$Trips == 1)
+```
+# **Conclusion**
+
+&nbsp; 
+
+The accuracy of the model is less than 60%. This is basically a coin flip. Without the distance or other critical data it is hard to train the algorithm.
+
+&nbsp; 
+
+# **Reference Section** 
+
+&nbsp; 
+
+1. Irizarry, R. A. (2022, July 7). Introduction to Data Science. HARVARD Data Science. Retrieved August 8, 2022, from Https://rafalab.github.io/dsbook/
+This project utilized "Introduction to Data Science Data Analysis and Prediction Algorithms with R" by our course instructor Rafael A. Irizarry published 2022-07-07.
+
+1. (2018, January 1). Uber Request Data. Kaggle. Retrieved October 1, 2022, from https://www.kaggle.com/datasets/anupammajhi/uber-request-data
